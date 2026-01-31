@@ -23,26 +23,24 @@ jobs:
   review:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
-      contents: write
+      contents: read
       pull-requests: write
-      issues: write
     steps:
       - name: Parse PR URL
         id: parse
         run: |
           PR_URL="${{ inputs.pr_url }}"
-          
+
           if [[ $PR_URL =~ github\.com/([^/]+)/([^/]+)/pull/([0-9]+) ]]; then
             OWNER="${BASH_REMATCH[1]}"
             REPO="${BASH_REMATCH[2]}"
             PR_NUMBER="${BASH_REMATCH[3]}"
-            
+
             echo "owner=$OWNER" >> $GITHUB_OUTPUT
             echo "repo=$REPO" >> $GITHUB_OUTPUT
             echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
             echo "repo_full=$OWNER/$REPO" >> $GITHUB_OUTPUT
-            
+
             echo "✅ Parsed: $OWNER/$REPO PR #$PR_NUMBER"
           else
             echo "❌ Invalid PR URL format"
@@ -50,10 +48,10 @@ jobs:
           fi
 
       - name: Checkout target repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           repository: ${{ steps.parse.outputs.repo_full }}
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
 
       - name: Prepare PR context
@@ -61,27 +59,28 @@ jobs:
         run: |
           REPO_FULL="${{ steps.parse.outputs.repo_full }}"
           PR_NUMBER="${{ steps.parse.outputs.pr_number }}"
-          
+
           PR_DATA=$(gh pr view $PR_NUMBER -R $REPO_FULL --json headRefName,baseRefName,title,body,author)
           HEAD_REF=$(echo "$PR_DATA" | jq -r '.headRefName')
           BASE_REF=$(echo "$PR_DATA" | jq -r '.baseRefName')
           PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
           PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.author.login')
-          
+
           echo "Fetching branches..."
           git fetch origin $HEAD_REF
           git fetch origin $BASE_REF
-          
-          echo "Checking out base branch..."
-          git checkout $BASE_REF
-          
-          cat > pr_context.md << 'EOF'
-          # PR Review Context
-          
+
+          echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
+          echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
+
+          # Create review prompt file
+          cat > review_prompt.md << 'PROMPT_EOF'
+          You are a senior code reviewer. Review this pull request thoroughly.
+
+          PROMPT_EOF
+
+          cat >> review_prompt.md << PROMPT_EOF
           ## PR Information
-          EOF
-          
-          cat >> pr_context.md << EOF
           - Repository: $REPO_FULL
           - PR Number: #$PR_NUMBER
           - Title: $PR_TITLE
@@ -89,56 +88,70 @@ jobs:
           - Base Branch: $BASE_REF
           - Head Branch: $HEAD_REF
           - Review Focus: ${{ inputs.review_focus }}
-          
-          ## Changed Files
-          EOF
-          
-          git diff --name-status origin/$BASE_REF...origin/$HEAD_REF >> pr_context.md
-          echo "" >> pr_context.md
-          echo "## Statistics" >> pr_context.md
-          git diff --stat origin/$BASE_REF...origin/$HEAD_REF >> pr_context.md
-          echo "" >> pr_context.md
-          echo "## Full Diff" >> pr_context.md
-          git diff -U5 origin/$BASE_REF...origin/$HEAD_REF >> pr_context.md
-          
-          git diff --name-only origin/$BASE_REF...origin/$HEAD_REF > changed_files.txt
-          
-          echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
-          echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
-          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
-      - uses: anomalyco/opencode/github@latest
+          ## Changed Files
+          PROMPT_EOF
+
+          git diff --name-status origin/$BASE_REF...origin/$HEAD_REF >> review_prompt.md
+          echo "" >> review_prompt.md
+          echo "## Statistics" >> review_prompt.md
+          git diff --stat origin/$BASE_REF...origin/$HEAD_REF >> review_prompt.md
+          echo "" >> review_prompt.md
+          echo "## Full Diff" >> review_prompt.md
+          echo '```diff' >> review_prompt.md
+          git diff -U5 origin/$BASE_REF...origin/$HEAD_REF >> review_prompt.md
+          echo '```' >> review_prompt.md
+
+          cat >> review_prompt.md << 'PROMPT_EOF'
+
+          ## Review Instructions
+
+          Analyze the changes and provide:
+          1. **Summary**: Brief overview of what this PR does
+          2. **Issues by Severity**:
+             - 🔴 Critical: Security vulnerabilities, data loss risks, breaking changes
+             - 🟠 Major: Bugs, performance issues, missing error handling
+             - 🟡 Minor: Code style, naming, minor improvements
+          3. **Positive Highlights**: Good practices observed
+          4. **Recommendation**: APPROVE, REQUEST_CHANGES, or COMMENT
+
+          Format your response in markdown suitable for a GitHub PR comment.
+          PROMPT_EOF
+
+          echo "Review prompt created:"
+          wc -l review_prompt.md
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: Install opencode
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Run review with opencode
+        id: review
+        run: |
+          export PATH="$HOME/.opencode/bin:$PATH"
+
+          # Run opencode with the prompt and capture output
+          REVIEW_OUTPUT=$(opencode -p "$(cat review_prompt.md)" --model deepseek/deepseek-chat --print 2>&1) || true
+
+          # Save to file for the next step
+          echo "$REVIEW_OUTPUT" > review_output.md
+
+          echo "Review completed"
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-        with:
-          model: deepseek/deepseek-chat
-          prompt: |
-            Review PR: ${{ inputs.pr_url }}
-            
-            Title: ${{ steps.pr_info.outputs.pr_title }}
-            Focus: ${{ inputs.review_focus }}
-            
-            Files:
-            - `pr_context.md` - Full diff and statistics
-            - `changed_files.txt` - List of changed files
-            
-            Task:
-            1. Read pr_context.md for all changes
-            2. For each file in changed_files.txt:
-               - Read base version from working directory
-               - Use `git show origin/${{ steps.pr_info.outputs.head_ref }}:path/to/file` for PR version
-               - Analyze changes
-            3. Check related files for context
-            
-            Review focus: ${{ inputs.review_focus }}
-            
-            Output format:
-            - Summary
-            - Issues by severity (Critical/Major/Minor)
-            - Positive highlights
-            - Recommendation
-            
-            Post review on ${{ inputs.pr_url }}
+
+      - name: Post review comment
+        run: |
+          REPO_FULL="${{ steps.parse.outputs.repo_full }}"
+          PR_NUMBER="${{ steps.parse.outputs.pr_number }}"
+
+          # Read review output
+          REVIEW_BODY=$(cat review_output.md)
+
+          # Post as PR comment
+          gh pr comment $PR_NUMBER -R $REPO_FULL --body "$REVIEW_BODY"
+
+          echo "✅ Review posted to ${{ inputs.pr_url }}"
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
