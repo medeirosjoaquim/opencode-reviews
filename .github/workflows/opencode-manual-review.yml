@@ -132,7 +132,7 @@ jobs:
           export PATH="$HOME/.opencode/bin:$PATH"
 
           # Run opencode with the prompt and capture output
-          REVIEW_OUTPUT=$(opencode -p "$(cat review_prompt.md)" --model deepseek/deepseek-chat --print 2>&1) || true
+          REVIEW_OUTPUT=$(opencode run --prompt "$(cat review_prompt.md)" --model deepseek/deepseek-chat 2>&1) || true
 
           # Save to file for the next step
           echo "$REVIEW_OUTPUT" > review_output.md
