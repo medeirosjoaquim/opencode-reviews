@@ -1,0 +1,193 @@
+name: Manual PR Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_url:
+        description: 'Full PR URL (e.g., https://github.com/owner/repo/pull/123)'
+        required: true
+        type: string
+      review_focus:
+        description: 'Review focus'
+        required: false
+        type: choice
+        default: 'general'
+        options:
+          - general
+          - security
+          - performance
+          - code-quality
+          - tests
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Parse PR URL
+        id: parse
+        run: |
+          PR_URL="${{ inputs.pr_url }}"
+          
+          # Extract owner, repo, and PR number from URL
+          # Handles: https://github.com/owner/repo/pull/123
+          if [[ $PR_URL =~ github\.com/([^/]+)/([^/]+)/pull/([0-9]+) ]]; then
+            OWNER="${BASH_REMATCH[1]}"
+            REPO="${BASH_REMATCH[2]}"
+            PR_NUMBER="${BASH_REMATCH[3]}"
+            
+            echo "owner=$OWNER" >> $GITHUB_OUTPUT
+            echo "repo=$REPO" >> $GITHUB_OUTPUT
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+            echo "repo_full=$OWNER/$REPO" >> $GITHUB_OUTPUT
+            
+            echo "✅ Parsed: $OWNER/$REPO PR #$PR_NUMBER"
+          else
+            echo "❌ Invalid PR URL format"
+            exit 1
+          fi
+
+      - name: Checkout target repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ steps.parse.outputs.repo_full }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare PR context
+        id: pr_info
+        run: |
+          REPO_FULL="${{ steps.parse.outputs.repo_full }}"
+          PR_NUMBER="${{ steps.parse.outputs.pr_number }}"
+          
+          # Get PR details
+          PR_DATA=$(gh pr view $PR_NUMBER -R $REPO_FULL --json headRefName,baseRefName,title,body,author)
+          HEAD_REF=$(echo "$PR_DATA" | jq -r '.headRefName')
+          BASE_REF=$(echo "$PR_DATA" | jq -r '.baseRefName')
+          PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
+          PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.author.login')
+          
+          # Fetch both branches
+          git fetch origin $HEAD_REF:$HEAD_REF
+          git fetch origin $BASE_REF:$BASE_REF
+          
+          # Checkout base branch
+          git checkout $BASE_REF
+          
+          # Create comprehensive context
+          cat > pr_context.md << 'EOF'
+          # PR Review Context
+          
+          ## PR Information
+          EOF
+          
+          cat >> pr_context.md << EOF
+          - Repository: $REPO_FULL
+          - PR Number: #$PR_NUMBER
+          - Title: $PR_TITLE
+          - Author: @$PR_AUTHOR
+          - Base Branch: $BASE_REF
+          - Head Branch: $HEAD_REF
+          - Review Focus: ${{ inputs.review_focus }}
+          
+          ## Changed Files
+          EOF
+          
+          git diff --name-status $BASE_REF...$HEAD_REF >> pr_context.md
+          
+          cat >> pr_context.md << 'EOF'
+          
+          ## Statistics
+          EOF
+          git diff --stat $BASE_REF...$HEAD_REF >> pr_context.md
+          
+          cat >> pr_context.md << 'EOF'
+          
+          ## Full Diff with Context
+          EOF
+          git diff -U5 $BASE_REF...$HEAD_REF >> pr_context.md
+          
+          # Create changed files list
+          git diff --name-only $BASE_REF...$HEAD_REF > changed_files.txt
+          
+          # Get file types for context
+          echo "" >> pr_context.md
+          echo "## File Types" >> pr_context.md
+          git diff --name-only $BASE_REF...$HEAD_REF | sed 's/.*\.//' | sort | uniq -c >> pr_context.md
+          
+          echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
+          echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
+          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "pr_author=$PR_AUTHOR" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: anomalyco/opencode/github@latest
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          model: deepseek/deepseek-chat
+          prompt: |
+            Review PR for repository: ${{ steps.parse.outputs.repo_full }}
+            
+            **PR Details:**
+            - URL: ${{ inputs.pr_url }}
+            - Title: "${{ steps.pr_info.outputs.pr_title }}"
+            - Author: @${{ steps.pr_info.outputs.pr_author }}
+            - Review Focus: ${{ inputs.review_focus }}
+            
+            **Context:**
+            - Repository is checked out at base branch: ${{ steps.pr_info.outputs.base_ref }}
+            - All base files are in working directory
+            - PR branch: ${{ steps.pr_info.outputs.head_ref }}
+            - Available files:
+              * `pr_context.md` - Full diff, statistics, and file types
+              * `changed_files.txt` - List of all changed files
+            
+            **Your task:**
+            1. Read `pr_context.md` to understand all changes
+            2. Read `changed_files.txt` for the list of modified files
+            3. For each changed file:
+               - Read base version from working directory
+               - Use `git show ${{ steps.pr_info.outputs.head_ref }}:path/to/file` for PR version
+               - Analyze the changes thoroughly
+            4. Check related files:
+               - Imports and dependencies
+               - Test files
+               - Configuration files
+               - Documentation
+            
+            **Review based on focus: ${{ inputs.review_focus }}**
+            
+            {% if inputs.review_focus == 'security' %}
+            Focus on: SQL injection, XSS, authentication, authorization, sensitive data exposure, dependency vulnerabilities
+            {% elif inputs.review_focus == 'performance' %}
+            Focus on: N+1 queries, unnecessary loops, memory leaks, inefficient algorithms, caching opportunities
+            {% elif inputs.review_focus == 'code-quality' %}
+            Focus on: Code duplication, naming conventions, code organization, SOLID principles, design patterns
+            {% elif inputs.review_focus == 'tests' %}
+            Focus on: Test coverage, test quality, edge cases, mocking, test organization
+            {% else %}
+            Cover all aspects: bugs, security, performance, code quality, tests, documentation
+            {% endif %}
+            
+            **Output:**
+            Post review on ${{ inputs.pr_url }} with:
+            
+            1. **Summary** (2-3 sentences)
+            2. **Critical Issues** (blocking)
+            3. **Major Issues** (should fix)
+            4. **Minor Issues** (nice to have)
+            5. **Positive Highlights** (good practices)
+            6. **Recommendation**: Approve / Request Changes / Comment
+            
+            For each issue provide:
+            - File name and line number
+            - Description
+            - Code snippet
+            - Suggested fix (if applicable)
