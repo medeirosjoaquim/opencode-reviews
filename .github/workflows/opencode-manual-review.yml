@@ -118,7 +118,7 @@ jobs:
           prompt: |
             Review PR: ${{ inputs.pr_url }}
             
-            Title: "${{ steps.pr_info.outputs.pr_title }}"
+            Title: ${{ steps.pr_info.outputs.pr_title }}
             Focus: ${{ inputs.review_focus }}
             
             Files:
