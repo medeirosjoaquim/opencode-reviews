@@ -131,13 +131,28 @@ jobs:
         run: |
           export PATH="$HOME/.opencode/bin:$PATH"
 
-          # Run opencode with the prompt and capture output
-          REVIEW_OUTPUT=$(opencode run "$(cat review_prompt.md)" --model deepseek/deepseek-chat 2>&1) || true
+          # Run opencode with JSON format to extract final response
+          opencode run "$(cat review_prompt.md)" --model deepseek/deepseek-chat --format json 2>&1 | tee review_raw.json || true
 
-          # Save to file for the next step
-          echo "$REVIEW_OUTPUT" > review_output.md
+          # Extract text responses from JSON events and get the last complete one
+          grep '"type":"text"' review_raw.json | \
+            jq -rs 'map(select(.type == "text")) | last | .text // empty' > review_output.md 2>/dev/null || true
+
+          # If that didn't work, try extracting from message.part.updated events
+          if [ ! -s review_output.md ]; then
+            grep 'message.part.updated' review_raw.json | \
+              jq -rs 'map(select(.properties.part.type == "text")) | last | .properties.part.text // empty' > review_output.md 2>/dev/null || true
+          fi
+
+          # Fallback: strip ANSI and extract readable content
+          if [ ! -s review_output.md ]; then
+            sed 's/\x1b\[[0-9;]*m//g' review_raw.json | \
+              grep -v '^{' | grep -v '^$' > review_output.md || true
+          fi
 
           echo "Review completed"
+          echo "--- Review Output Preview ---"
+          head -50 review_output.md
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
@@ -146,11 +161,8 @@ jobs:
           REPO_FULL="${{ steps.parse.outputs.repo_full }}"
           PR_NUMBER="${{ steps.parse.outputs.pr_number }}"
 
-          # Read review output
-          REVIEW_BODY=$(cat review_output.md)
-
-          # Post as PR comment
-          gh pr comment $PR_NUMBER -R $REPO_FULL --body "$REVIEW_BODY"
+          # Read review output and post as PR comment
+          gh pr comment $PR_NUMBER -R $REPO_FULL --body-file review_output.md
 
           echo "✅ Review posted to ${{ inputs.pr_url }}"
         env:
