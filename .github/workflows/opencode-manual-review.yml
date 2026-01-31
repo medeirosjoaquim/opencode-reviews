@@ -55,7 +55,6 @@ jobs:
           repository: ${{ steps.parse.outputs.repo_full }}
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-          persist-credentials: false
 
       - name: Prepare PR context
         id: pr_info
