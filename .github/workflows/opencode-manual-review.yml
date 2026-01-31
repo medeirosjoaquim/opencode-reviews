@@ -134,20 +134,24 @@ jobs:
           # Run opencode with JSON format to extract final response
           opencode run "$(cat review_prompt.md)" --model deepseek/deepseek-chat --format json 2>&1 | tee review_raw.json || true
 
-          # Extract text responses from JSON events and get the last complete one
-          grep '"type":"text"' review_raw.json | \
-            jq -rs 'map(select(.type == "text")) | last | .text // empty' > review_output.md 2>/dev/null || true
+          # Extract text responses and find the one containing the review (has "Summary" section)
+          grep '"type":"text"' review_raw.json | while read -r line; do
+            text=$(echo "$line" | jq -r '.part.text // empty')
+            if echo "$text" | grep -q "## Summary"; then
+              echo "$text" > review_output.md
+              break
+            fi
+          done
 
-          # If that didn't work, try extracting from message.part.updated events
+          # Fallback: get the last text response if no Summary found
           if [ ! -s review_output.md ]; then
-            grep 'message.part.updated' review_raw.json | \
-              jq -rs 'map(select(.properties.part.type == "text")) | last | .properties.part.text // empty' > review_output.md 2>/dev/null || true
+            grep '"type":"text"' review_raw.json | tail -1 | \
+              jq -r '.part.text // empty' > review_output.md 2>/dev/null || true
           fi
 
-          # Fallback: strip ANSI and extract readable content
+          # Clean up: ensure file has content
           if [ ! -s review_output.md ]; then
-            sed 's/\x1b\[[0-9;]*m//g' review_raw.json | \
-              grep -v '^{' | grep -v '^$' > review_output.md || true
+            echo "Review generation failed - no output captured" > review_output.md
           fi
 
           echo "Review completed"
