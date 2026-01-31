@@ -106,16 +106,41 @@ jobs:
 
           ## Review Instructions
 
-          Analyze the changes and provide:
-          1. **Summary**: Brief overview of what this PR does
-          2. **Issues by Severity**:
-             - 🔴 Critical: Security vulnerabilities, data loss risks, breaking changes
-             - 🟠 Major: Bugs, performance issues, missing error handling
-             - 🟡 Minor: Code style, naming, minor improvements
-          3. **Positive Highlights**: Good practices observed
-          4. **Recommendation**: APPROVE, REQUEST_CHANGES, or COMMENT
+          Provide a CONCISE code review. Be direct and actionable.
 
-          Format your response in markdown suitable for a GitHub PR comment.
+          ### Output Format:
+
+          **Summary** (2-3 sentences max)
+
+          **Issues Found** (if any):
+
+          For EACH issue, use this exact format:
+
+          ---
+          **[SEVERITY] Issue Title** `filename:line`
+
+          ```diff
+          - problematic code line(s)
+          + suggested fix
+          ```
+
+          **Why:** Brief explanation of the problem.
+
+          ---
+
+          Severity levels:
+          - 🔴 CRITICAL: Security, data loss, crashes
+          - 🟠 MAJOR: Bugs, missing error handling
+          - 🟡 MINOR: Style, naming, small improvements
+
+          **Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
+
+          ### Rules:
+          - Only report REAL issues found in the diff
+          - Show ACTUAL code from the diff, not hypothetical examples
+          - Keep explanations brief (1-2 sentences)
+          - If no issues found, say "No issues found" and approve
+          - Do NOT pad with generic advice or praise
           PROMPT_EOF
 
           echo "Review prompt created:"
