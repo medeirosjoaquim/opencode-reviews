@@ -1,50 +1,223 @@
 # OpenCode PR Reviews
 
-Automated code reviews for any GitHub PR using [OpenCode](https://opencode.ai) with DeepSeek AI.
+Automated AI code reviews for any GitHub PR using [OpenCode](https://opencode.ai) with DeepSeek.
 
 ## Features
 
-- Review any public GitHub PR by URL
+- Review any GitHub PR by URL
 - Configurable review focus (general, security, performance, code-quality, tests)
 - Structured output with severity levels and code snippets
 - Posts review directly as a PR comment
 
-## Usage
+## Quick Start
 
-### Manual Trigger
+### 1. Create the workflow file
 
-1. Go to **Actions** tab in this repository
-2. Select **Manual PR Review** workflow
+Create `.github/workflows/opencode-review.yml` in your repository:
+
+```yaml
+name: AI PR Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_url:
+        description: 'PR URL (e.g., https://github.com/owner/repo/pull/123)'
+        required: true
+        type: string
+      review_focus:
+        description: 'Review focus'
+        required: false
+        type: choice
+        default: 'general'
+        options:
+          - general
+          - security
+          - performance
+          - code-quality
+          - tests
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Parse PR URL
+        id: parse
+        run: |
+          PR_URL="${{ inputs.pr_url }}"
+          if [[ $PR_URL =~ github\.com/([^/]+)/([^/]+)/pull/([0-9]+) ]]; then
+            echo "owner=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            echo "repo=${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
+            echo "pr_number=${BASH_REMATCH[3]}" >> $GITHUB_OUTPUT
+            echo "repo_full=${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
+          else
+            echo "Invalid PR URL format" && exit 1
+          fi
+
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.parse.outputs.repo_full }}
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Prepare PR context
+        id: pr_info
+        run: |
+          REPO_FULL="${{ steps.parse.outputs.repo_full }}"
+          PR_NUMBER="${{ steps.parse.outputs.pr_number }}"
+
+          PR_DATA=$(gh pr view $PR_NUMBER -R $REPO_FULL --json headRefName,baseRefName,title,author)
+          HEAD_REF=$(echo "$PR_DATA" | jq -r '.headRefName')
+          BASE_REF=$(echo "$PR_DATA" | jq -r '.baseRefName')
+          PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
+          PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.author.login')
+
+          git fetch origin $HEAD_REF $BASE_REF
+          echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
+          echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
+
+          cat > review_prompt.md << 'EOF'
+          You are a senior code reviewer. Review this pull request.
+          EOF
+
+          cat >> review_prompt.md << EOF
+          ## PR Information
+          - Repository: $REPO_FULL
+          - PR: #$PR_NUMBER - $PR_TITLE
+          - Author: @$PR_AUTHOR
+          - Focus: ${{ inputs.review_focus }}
+
+          ## Diff
+          EOF
+
+          echo '```diff' >> review_prompt.md
+          git diff -U5 origin/$BASE_REF...origin/$HEAD_REF >> review_prompt.md
+          echo '```' >> review_prompt.md
+
+          cat >> review_prompt.md << 'EOF'
+
+          ## Instructions
+          Output GitHub markdown. For each issue use:
+
+          ---
+          ### ⚠️ WARNING `filename:line`
+          ```typescript
+          code snippet
+          ```
+          **Problem:** Brief explanation.
+          **Fix:** Suggested solution.
+          ---
+
+          Severities: 🔴 CRITICAL, ⚠️ WARNING, ℹ️ INFO, 💡 SUGGESTION
+          End with: **Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
+          EOF
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: Install OpenCode
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Run AI Review
+        run: |
+          export PATH="$HOME/.opencode/bin:$PATH"
+          opencode run "$(cat review_prompt.md)" --model deepseek/deepseek-chat --format json 2>&1 | tee review_raw.json || true
+
+          grep '"type":"text"' review_raw.json | while read -r line; do
+            text=$(echo "$line" | jq -r '.part.text // empty')
+            if echo "$text" | grep -qi "verdict\|summary\|problem"; then
+              echo "$text" > review_output.md
+              break
+            fi
+          done
+
+          [ -s review_output.md ] || grep '"type":"text"' review_raw.json | tail -1 | jq -r '.part.text // empty' > review_output.md
+          [ -s review_output.md ] || echo "Review generation failed" > review_output.md
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+
+      - name: Post Review Comment
+        run: |
+          gh pr comment ${{ steps.parse.outputs.pr_number }} \
+            -R ${{ steps.parse.outputs.repo_full }} \
+            --body-file review_output.md
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+```
+
+### 2. Add repository secrets
+
+Go to your repository **Settings** → **Secrets and variables** → **Actions** and add:
+
+| Secret | Description | How to get it |
+|--------|-------------|---------------|
+| `DEEPSEEK_API_KEY` | DeepSeek API key | [platform.deepseek.com](https://platform.deepseek.com/) |
+| `GH_PAT` | GitHub Personal Access Token | See [Creating a PAT](#creating-a-github-pat) |
+
+### 3. Run a review
+
+1. Go to **Actions** tab
+2. Select **AI PR Review**
 3. Click **Run workflow**
-4. Enter the PR URL (e.g., `https://github.com/owner/repo/pull/123`)
-5. Select review focus (optional)
-6. Click **Run workflow**
+4. Enter a PR URL and click **Run workflow**
 
-### Review Output Format
+---
 
-The review is posted as a PR comment with:
+## Creating a GitHub PAT
+
+1. Go to [GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)
+2. Click **Generate new token (classic)**
+3. Give it a name (e.g., "OpenCode PR Reviews")
+4. Select scopes:
+   - `repo` (Full control of private repositories)
+   - `write:discussion` (optional, for PR comments)
+5. Click **Generate token**
+6. Copy the token and add it as `GH_PAT` secret
+
+> **Note:** For reviewing PRs in other repositories, your PAT needs access to those repos.
+
+---
+
+## Review Output Format
+
+Reviews are posted as PR comments with structured markdown:
 
 ```markdown
-# DeepSeek AI Code Review - PR #123
+# AI Code Review - PR #123
 
 ## Summary
 Brief description of what the PR does.
 
 ---
 
-### 🔴 CRITICAL `filename:line`
+### 🔴 CRITICAL `src/auth.ts:45`
 
 ```typescript
-const problematicCode = something;
+const password = req.body.password; // stored in plain text
 ```
 
-**Problem:** Explanation of the issue.
+**Problem:** Password is stored without hashing.
 
-**Fix:** Suggested solution.
+**Fix:** Use bcrypt to hash passwords before storage.
 
 ---
 
-**Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
+### ⚠️ WARNING `src/api.ts:120`
+
+```typescript
+const data = await fetch(url); // no error handling
+```
+
+**Problem:** Missing error handling for network request.
+
+**Fix:** Wrap in try-catch and handle failures gracefully.
+
+---
+
+**Verdict:** REQUEST_CHANGES
 ```
 
 ### Severity Levels
@@ -56,42 +229,71 @@ const problematicCode = something;
 | ℹ️ | INFO | Code style, naming, minor improvements |
 | 💡 | SUGGESTION | Optional enhancements |
 
-## Setup
-
-### Required Secrets
-
-| Secret | Description |
-|--------|-------------|
-| `DEEPSEEK_API_KEY` | Your DeepSeek API key |
-| `GH_PAT` | GitHub Personal Access Token with `repo` scope (for cross-repo access) |
-
-### Setting up secrets
-
-1. Go to repository **Settings** > **Secrets and variables** > **Actions**
-2. Add `DEEPSEEK_API_KEY` with your DeepSeek API key
-3. Add `GH_PAT` with a GitHub PAT that has access to the repos you want to review
+---
 
 ## Configuration
 
-Edit `.github/workflows/opencode-manual-review.yml` to customize:
+### Using a different AI model
 
-- **Model**: Change `deepseek/deepseek-chat` to another supported model
-- **Review prompt**: Modify the review instructions in the `Prepare PR context` step
-- **Output format**: Adjust the markdown template in the prompt
+Change the `--model` parameter in the workflow:
 
-## How It Works
+```yaml
+opencode run "$(cat review_prompt.md)" --model deepseek/deepseek-reasoner --format json
+```
 
-1. **Parse PR URL** - Extracts owner, repo, and PR number
-2. **Checkout** - Clones the target repository
-3. **Prepare Context** - Fetches PR metadata and generates diff
-4. **Run Review** - Sends diff to DeepSeek via OpenCode CLI
-5. **Post Comment** - Extracts review from JSON output and posts to PR
+Available models depend on your OpenCode configuration and API keys.
+
+### Customizing the review prompt
+
+Edit the `review_prompt.md` section in the workflow to change:
+- Review focus areas
+- Output format
+- Severity definitions
+- Language/framework-specific instructions
+
+### Auto-trigger on PR events
+
+Add this to the `on:` section to automatically review new PRs:
+
+```yaml
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+    # ... keep existing inputs
+```
+
+Then modify the workflow to use `${{ github.event.pull_request.number }}` instead of the input URL.
+
+---
 
 ## Limitations
 
-- Only works with public repositories (or repos accessible by your `GH_PAT`)
-- Large PRs may take several minutes to review
+- Large PRs (1000+ lines) may take several minutes
 - DeepSeek API rate limits apply
+- Requires PAT with access to target repositories
+- Review quality depends on the AI model used
+
+---
+
+## Troubleshooting
+
+### "Resource not accessible by integration"
+
+Your `GH_PAT` doesn't have access to the target repository. Ensure the token has `repo` scope and you have access to the repository.
+
+### Empty review output
+
+Check the workflow logs for the "Run AI Review" step. Common issues:
+- Invalid `DEEPSEEK_API_KEY`
+- Large PR exceeding context limits
+- Network timeout
+
+### Review not posted
+
+Ensure `GH_PAT` has write access to the target repository's pull requests.
+
+---
 
 ## License
 
