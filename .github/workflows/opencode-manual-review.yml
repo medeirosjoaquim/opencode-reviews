@@ -106,41 +106,39 @@ jobs:
 
           ## Review Instructions
 
-          Provide a CONCISE code review. Be direct and actionable.
+          Analyze the diff and output issues in this EXACT format:
 
-          ### Output Format:
+          ```
+          ============================================================
 
-          **Summary** (2-3 sentences max)
+          [SEVERITY] filename:line_number
 
-          **Issues Found** (if any):
+            Code (around line N):
+                N-1 +   previous line
+                N   +   problematic line here
+                N+1 +   next line
 
-          For EACH issue, use this exact format:
+            Problem: Brief explanation of the issue.
+            Fix: Concrete suggestion to fix it.
 
-          ---
-          **[SEVERITY] Issue Title** `filename:line`
-
-          ```diff
-          - problematic code line(s)
-          + suggested fix
+          ============================================================
           ```
 
-          **Why:** Brief explanation of the problem.
+          SEVERITY must be one of:
+          - [CRITICAL] - Security vulnerabilities, data loss, crashes
+          - [WARNING] - Bugs, logic errors, missing error handling
+          - [INFO] - Code style, naming, minor improvements
+          - [SUGGESTION] - Optional enhancements
 
-          ---
-
-          Severity levels:
-          - 🔴 CRITICAL: Security, data loss, crashes
-          - 🟠 MAJOR: Bugs, missing error handling
-          - 🟡 MINOR: Style, naming, small improvements
-
-          **Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
-
-          ### Rules:
-          - Only report REAL issues found in the diff
-          - Show ACTUAL code from the diff, not hypothetical examples
-          - Keep explanations brief (1-2 sentences)
-          - If no issues found, say "No issues found" and approve
-          - Do NOT pad with generic advice or praise
+          Rules:
+          1. Use + prefix for added lines, - for removed lines (from diff)
+          2. Show 2-3 lines of context around the issue
+          3. Include actual line numbers from the diff
+          4. One issue per block, separated by ============
+          5. Problem and Fix must be 1-2 sentences max
+          6. Only report REAL issues from the actual diff
+          7. End with: **Verdict: APPROVE | REQUEST_CHANGES | COMMENT**
+          8. If no issues: output "No issues found" and APPROVE
           PROMPT_EOF
 
           echo "Review prompt created:"
