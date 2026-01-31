@@ -106,39 +106,39 @@ jobs:
 
           ## Review Instructions
 
-          Analyze the diff and output issues in this EXACT format:
+          Output a GitHub markdown formatted review. Use this EXACT format for each issue:
 
-          ```
-          ============================================================
+          ---
 
-          [SEVERITY] filename:line_number
+          ### ⚠️ WARNING `filename:line`
 
-            Code (around line N):
-                N-1 +   previous line
-                N   +   problematic line here
-                N+1 +   next line
-
-            Problem: Brief explanation of the issue.
-            Fix: Concrete suggestion to fix it.
-
-          ============================================================
+          ```typescript
+          // Line N-1
+          const problematicCode = something; // Line N
+          // Line N+1
           ```
 
-          SEVERITY must be one of:
-          - [CRITICAL] - Security vulnerabilities, data loss, crashes
-          - [WARNING] - Bugs, logic errors, missing error handling
-          - [INFO] - Code style, naming, minor improvements
-          - [SUGGESTION] - Optional enhancements
+          **Problem:** Brief explanation of the issue.
+
+          **Fix:** Concrete suggestion to fix it.
+
+          ---
+
+          Use these severity headers:
+          - `### 🔴 CRITICAL` - Security vulnerabilities, data loss, crashes
+          - `### ⚠️ WARNING` - Bugs, logic errors, missing error handling
+          - `### ℹ️ INFO` - Code style, naming, minor improvements
+          - `### 💡 SUGGESTION` - Optional enhancements
 
           Rules:
-          1. Use + prefix for added lines, - for removed lines (from diff)
-          2. Show 2-3 lines of context around the issue
-          3. Include actual line numbers from the diff
-          4. One issue per block, separated by ============
-          5. Problem and Fix must be 1-2 sentences max
-          6. Only report REAL issues from the actual diff
-          7. End with: **Verdict: APPROVE | REQUEST_CHANGES | COMMENT**
-          8. If no issues: output "No issues found" and APPROVE
+          1. Always use triple backticks with language (```typescript, ```diff, etc.)
+          2. Use `---` horizontal rules between issues
+          3. Bold the **Problem:** and **Fix:** labels
+          4. Show 2-3 lines of context with actual code from the diff
+          5. Use inline code for file:line references
+          6. End with: **Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
+          7. If no issues: "✅ No issues found" and APPROVE
+          8. Keep it concise - 1-2 sentences per Problem/Fix
           PROMPT_EOF
 
           echo "Review prompt created:"
