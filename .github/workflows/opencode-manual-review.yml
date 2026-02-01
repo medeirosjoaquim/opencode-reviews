@@ -7,17 +7,15 @@ on:
         description: 'Full PR URL (e.g., https://github.com/owner/repo/pull/123)'
         required: true
         type: string
-      review_focus:
-        description: 'Review focus'
+      review_level:
+        description: 'Review strictness level'
         required: false
         type: choice
-        default: 'general'
+        default: 'medium'
         options:
-          - general
-          - security
-          - performance
-          - code-quality
-          - tests
+          - critic
+          - medium
+          - low
 
 jobs:
   review:
@@ -75,7 +73,7 @@ jobs:
 
           # Create review prompt file
           cat > review_prompt.md << 'PROMPT_EOF'
-          You are a senior code reviewer. Review this pull request thoroughly.
+          You are a senior code reviewer. Review this pull request.
 
           PROMPT_EOF
 
@@ -87,7 +85,7 @@ jobs:
           - Author: @$PR_AUTHOR
           - Base Branch: $BASE_REF
           - Head Branch: $HEAD_REF
-          - Review Focus: ${{ inputs.review_focus }}
+          - Review Level: ${{ inputs.review_level }}
 
           ## Changed Files
           PROMPT_EOF
@@ -102,8 +100,38 @@ jobs:
           git diff -U5 origin/$BASE_REF...origin/$HEAD_REF >> review_prompt.md
           echo '```' >> review_prompt.md
 
-          cat >> review_prompt.md << 'PROMPT_EOF'
+          # Add review level instructions
+          REVIEW_LEVEL="${{ inputs.review_level }}"
 
+          if [ "$REVIEW_LEVEL" = "critic" ]; then
+            cat >> review_prompt.md << 'PROMPT_EOF'
+
+          ## Review Level: CRITIC (Strict)
+          Focus on ALL issues including breaking changes, security vulnerabilities, bugs, logic errors, edge cases, error handling gaps, and code quality problems. Be thorough and flag everything that could cause issues.
+
+          PROMPT_EOF
+          elif [ "$REVIEW_LEVEL" = "low" ]; then
+            cat >> review_prompt.md << 'PROMPT_EOF'
+
+          ## Review Level: LOW (Critical Only)
+          ONLY flag issues that are CRITICAL to the PR's objective. Ignore minor problems, style issues, and medium-severity bugs. Focus exclusively on:
+          - Security vulnerabilities that could be exploited
+          - Data loss or corruption risks
+          - Breaking changes that affect the PR's main goal
+          - Crashes or critical runtime errors
+          Skip everything else - no style suggestions, no minor improvements.
+
+          PROMPT_EOF
+          else
+            cat >> review_prompt.md << 'PROMPT_EOF'
+
+          ## Review Level: MEDIUM (Balanced)
+          Focus on bugs, security issues, and significant code quality problems. Skip minor style issues unless they affect readability or maintainability.
+
+          PROMPT_EOF
+          fi
+
+          cat >> review_prompt.md << 'PROMPT_EOF'
           ## Review Instructions
 
           Output a GitHub markdown formatted review. Use this EXACT format for each issue:
