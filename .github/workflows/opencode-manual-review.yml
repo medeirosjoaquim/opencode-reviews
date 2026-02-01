@@ -27,6 +27,11 @@ on:
           - 'performance - efficiency, memory, speed'
           - 'code-quality - patterns, maintainability'
           - 'tests - coverage, assertions, edge cases'
+      complementary_branch:
+        description: 'Optional: complementary branch URL for cross-repo comparison (leave empty to skip)'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   review:
@@ -112,6 +117,99 @@ jobs:
           git diff -U5 origin/$BASE_REF...origin/$HEAD_REF >> review_prompt.md
           echo '```' >> review_prompt.md
 
+          # === PROJECT STRUCTURE ===
+          echo "" >> review_prompt.md
+          echo "## Project Structure" >> review_prompt.md
+          echo '```' >> review_prompt.md
+          find . -type f -name "*.ts" -o -name "*.js" -o -name "*.tsx" -o -name "*.jsx" -o -name "*.py" -o -name "*.go" -o -name "*.rs" | grep -v node_modules | grep -v .git | head -100 >> review_prompt.md
+          echo '```' >> review_prompt.md
+
+          # === FULL CONTENT OF CHANGED FILES ===
+          echo "" >> review_prompt.md
+          echo "## Full Content of Changed Files" >> review_prompt.md
+          echo "These are the complete files (not just diff) for better context:" >> review_prompt.md
+
+          CHANGED_FILES=$(git diff --name-only origin/$BASE_REF...origin/$HEAD_REF)
+          for file in $CHANGED_FILES; do
+            if [ -f "$file" ]; then
+              echo "" >> review_prompt.md
+              echo "### File: \`$file\`" >> review_prompt.md
+              # Detect language from extension
+              ext="${file##*.}"
+              echo "\`\`\`$ext" >> review_prompt.md
+              cat -n "$file" >> review_prompt.md
+              echo '```' >> review_prompt.md
+            fi
+          done
+
+          # === RELATED/IMPORTED FILES ===
+          echo "" >> review_prompt.md
+          echo "## Related Files (imports/dependencies)" >> review_prompt.md
+          echo "Files imported by changed files for cross-functional review:" >> review_prompt.md
+
+          for file in $CHANGED_FILES; do
+            if [ -f "$file" ]; then
+              # Extract imports (JS/TS style)
+              imports=$(grep -E "^import .* from ['\"]\..*['\"]" "$file" 2>/dev/null | sed -E "s/.*from ['\"]([^'\"]+)['\"].*/\1/" | sort -u)
+              # Extract requires (CommonJS)
+              requires=$(grep -E "require\(['\"]\..*['\"]\)" "$file" 2>/dev/null | sed -E "s/.*require\(['\"]([^'\"]+)['\"]\).*/\1/" | sort -u)
+
+              all_imports="$imports $requires"
+
+              for imp in $all_imports; do
+                # Resolve relative path
+                dir=$(dirname "$file")
+                resolved="$dir/$imp"
+                # Try common extensions
+                for ext in "" ".ts" ".tsx" ".js" ".jsx" ".py"; do
+                  if [ -f "${resolved}${ext}" ]; then
+                    target="${resolved}${ext}"
+                    # Skip if already in changed files
+                    if ! echo "$CHANGED_FILES" | grep -q "^${target}$"; then
+                      echo "" >> review_prompt.md
+                      echo "### Imported by \`$file\`: \`$target\`" >> review_prompt.md
+                      fext="${target##*.}"
+                      echo "\`\`\`$fext" >> review_prompt.md
+                      cat -n "$target" 2>/dev/null | head -200 >> review_prompt.md
+                      echo '```' >> review_prompt.md
+                    fi
+                    break
+                  fi
+                done
+              done
+            fi
+          done
+
+          # === COMPLEMENTARY BRANCH ===
+          COMP_BRANCH="${{ inputs.complementary_branch }}"
+          if [ -n "$COMP_BRANCH" ]; then
+            echo "" >> review_prompt.md
+            echo "## Complementary Branch Reference" >> review_prompt.md
+            echo "Comparing against: $COMP_BRANCH" >> review_prompt.md
+
+            # If it's a URL, parse and fetch
+            if [[ $COMP_BRANCH =~ github\.com/([^/]+)/([^/]+)/tree/([^/]+) ]]; then
+              COMP_OWNER="${BASH_REMATCH[1]}"
+              COMP_REPO="${BASH_REMATCH[2]}"
+              COMP_REF="${BASH_REMATCH[3]}"
+
+              echo "Fetching from $COMP_OWNER/$COMP_REPO branch $COMP_REF..." >> review_prompt.md
+
+              # Fetch complementary branch files via GitHub API
+              for file in $CHANGED_FILES; do
+                content=$(gh api "repos/$COMP_OWNER/$COMP_REPO/contents/$file?ref=$COMP_REF" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null)
+                if [ -n "$content" ]; then
+                  echo "" >> review_prompt.md
+                  echo "### Complementary: \`$file\` from $COMP_REF" >> review_prompt.md
+                  ext="${file##*.}"
+                  echo "\`\`\`$ext" >> review_prompt.md
+                  echo "$content" | head -200 >> review_prompt.md
+                  echo '```' >> review_prompt.md
+                fi
+              done
+            fi
+          fi
+
           # Add review level instructions
           REVIEW_LEVEL="${{ inputs.review_level }}"
 
@@ -177,6 +275,18 @@ jobs:
 
           cat >> review_prompt.md << 'PROMPT_EOF'
           ## Review Instructions
+
+          CROSS-FUNCTIONAL REVIEW: You have access to:
+          1. Full content of changed files (not just diff) - use this to understand context
+          2. Related/imported files - verify changed code correctly uses functions from dependencies
+          3. Project structure - understand the codebase architecture
+          4. Complementary branch (if provided) - compare implementations
+
+          When reviewing imports/usage, CHECK that:
+          - Function signatures match between caller and callee
+          - Types are compatible
+          - Required parameters are provided
+          - Return values are handled correctly
 
           Output GitHub markdown. Use this EXACT format for each issue:
 
