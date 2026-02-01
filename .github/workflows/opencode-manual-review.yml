@@ -12,7 +12,7 @@ on:
         description: 'Review strictness level'
         required: false
         type: choice
-        default: 'medium'
+        default: 'medium - balanced review'
         options:
           - 'critic - thorough, flags everything'
           - 'medium - balanced review'
@@ -21,7 +21,7 @@ on:
         description: 'Review focus area'
         required: false
         type: choice
-        default: 'general'
+        default: 'general - all aspects'
         options:
           - 'general - all aspects'
           - 'security - vulnerabilities, auth, injection'
@@ -37,7 +37,7 @@ on:
         description: 'Search external library documentation during review'
         required: false
         type: choice
-        default: 'no'
+        default: 'no - skip documentation search'
         options:
           - 'no - skip documentation search'
           - 'yes - search docs for external libraries'
@@ -535,15 +535,15 @@ jobs:
           fi
 
           # Add header with review number
-          HEADER="# 🤖 Code Review #${REVIEW_NUM}
-
-> **Level:** ${{ inputs.review_level || 'medium' }} | **Focus:** ${{ inputs.review_focus || 'general' }}${DOCS_INDICATOR}
-
----
-
-"
+          {
+            echo "# 🤖 Code Review #${REVIEW_NUM}"
+            echo ""
+            echo "> **Level:** ${{ inputs.review_level || 'medium' }} | **Focus:** ${{ inputs.review_focus || 'general' }}${DOCS_INDICATOR}"
+            echo ""
+            echo "---"
+            echo ""
+          } > final_review.md
           # Combine header with review output
-          echo "$HEADER" > final_review.md
           cat review_output.md >> final_review.md
 
           # Post as PR comment
