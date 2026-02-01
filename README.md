@@ -6,7 +6,7 @@ Automated AI code reviews for any GitHub PR using [OpenCode](https://opencode.ai
 
 - Review any GitHub PR by URL
 - Configurable review focus (general, security, performance, code-quality, tests)
-- Adjustable strictness levels (critical, medium, low)
+- Adjustable review levels (critic, medium, low)
 - Structured output with severity levels and code snippets
 - Posts review directly as a PR comment
 
@@ -26,26 +26,26 @@ on:
         description: 'PR URL (e.g., https://github.com/owner/repo/pull/123)'
         required: true
         type: string
-      review_focus:
-        description: 'Review focus'
-        required: false
-        type: choice
-        default: 'general'
-        options:
-          - general
-          - security
-          - performance
-          - code-quality
-          - tests
-      strictness:
-        description: 'Review thoroughness'
+      review_level:
+        description: 'Review strictness level'
         required: false
         type: choice
         default: 'medium'
         options:
-          - 'critical - fast, security/bugs only'
-          - 'medium - standard review'
-          - 'low - thorough, includes nitpicks'
+          - 'critic - thorough, flags everything'
+          - 'medium - balanced review'
+          - 'low - critical issues only'
+      review_focus:
+        description: 'Review focus area'
+        required: false
+        type: choice
+        default: 'general'
+        options:
+          - 'general - all aspects'
+          - 'security - vulnerabilities, auth, injection'
+          - 'performance - efficiency, memory, speed'
+          - 'code-quality - patterns, maintainability'
+          - 'tests - coverage, assertions, edge cases'
 
 jobs:
   review:
@@ -99,8 +99,8 @@ jobs:
           - Repository: $REPO_FULL
           - PR: #$PR_NUMBER - $PR_TITLE
           - Author: @$PR_AUTHOR
-          - Focus: ${{ inputs.review_focus }}
-          - Strictness: ${{ inputs.strictness }}
+          - Review Level: ${{ inputs.review_level }}
+          - Review Focus: ${{ inputs.review_focus }}
 
           ## Diff
           EOF
@@ -113,12 +113,12 @@ jobs:
 
           ## Instructions
 
-          **Strictness levels (affects both speed and detail):**
-          - critical: FAST review - only scan the diff for security vulnerabilities and obvious bugs. Skip codebase exploration, skip style issues. Output only critical findings.
-          - medium: Standard review - check for bugs, missing error handling, and code quality issues
-          - low: Thorough review - include style nitpicks, naming suggestions, and minor improvements
+          **Review levels:**
+          - critic: Thorough - flag ALL issues including style, edge cases, code quality
+          - medium: Balanced - bugs, security, significant code quality issues
+          - low: FAST - only critical issues (security, crashes, data loss). Skip codebase exploration.
 
-          IMPORTANT: Do NOT use todo lists or explore files outside the diff. Analyze the diff directly and output findings immediately.
+          IMPORTANT: Do NOT use todo lists or explore files outside the diff. Analyze the diff directly.
 
           Output GitHub markdown. For each issue use EXACTLY this format:
 
@@ -277,15 +277,27 @@ Brief description of what the PR does.
 | ℹ️ | INFO | Code style, naming, minor improvements |
 | 💡 | SUGGESTION | Optional enhancements |
 
-### Strictness Levels
+### Review Levels
 
-Control review speed and thoroughness:
+Control review thoroughness:
 
-| Level | Speed | What gets reported |
-|-------|-------|-------------------|
-| **critical** | Fast | Security vulnerabilities, crashes, data loss - skips codebase exploration |
-| **medium** | Standard | Above + code quality, error handling, potential bugs |
-| **low** | Thorough | Above + style nitpicks, naming, minor improvements |
+| Level | Description |
+|-------|-------------|
+| **critic** | Thorough - flags everything including style, edge cases, code quality |
+| **medium** | Balanced - bugs, security, significant code quality issues |
+| **low** | Critical only - security vulnerabilities, crashes, data loss (fastest) |
+
+### Review Focus
+
+Specialize what the review looks for:
+
+| Focus | Priorities |
+|-------|-----------|
+| **general** | All aspects |
+| **security** | Injection, auth, secrets, XSS, CSRF |
+| **performance** | N+1 queries, memory, blocking ops, caching |
+| **code-quality** | SOLID, DRY, naming, coupling |
+| **tests** | Coverage, assertions, edge cases, isolation |
 
 ---
 
