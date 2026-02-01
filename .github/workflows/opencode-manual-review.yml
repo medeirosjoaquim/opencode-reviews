@@ -140,15 +140,15 @@ jobs:
 
           ### ⚠️ WARNING `filename:line`
 
-          ```typescript
-          // Line N-1
-          const problematicCode = something; // Line N
-          // Line N+1
-          ```
-
           **Problem:** Brief explanation of the issue.
 
-          **Fix:** Concrete suggestion to fix it.
+          ```javascript
+          const hash = hashPassword(password); // ❌ Missing await - returns Promise not value
+          ```
+
+          ```suggestion
+          const hash = await hashPassword(password);
+          ```
 
           ---
 
@@ -159,14 +159,14 @@ jobs:
           - `### 💡 SUGGESTION` - Optional enhancements
 
           Rules:
-          1. Always use triple backticks with language (```typescript, ```diff, etc.)
-          2. Use `---` horizontal rules between issues
-          3. Bold the **Problem:** and **Fix:** labels
-          4. Show 2-3 lines of context with actual code from the diff
-          5. Use inline code for file:line references
+          1. First show the PROBLEMATIC code with inline // comment explaining what's wrong
+          2. Then show a ```suggestion block with the FIXED code (clean, no comments)
+          3. Use appropriate language hint (```javascript, ```typescript, ```python, etc.)
+          4. Use `---` horizontal rules between issues
+          5. Use inline code for `file:line` references
           6. End with: **Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
           7. If no issues: "✅ No issues found" and APPROVE
-          8. Keep it concise - 1-2 sentences per Problem/Fix
+          8. Keep Problem explanation to 1 sentence
           PROMPT_EOF
 
           echo "Review prompt created:"
