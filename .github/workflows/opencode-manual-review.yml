@@ -13,9 +13,9 @@ on:
         type: choice
         default: 'medium'
         options:
-          - critic
-          - medium
-          - low
+          - 'critic - thorough, flags everything'
+          - 'medium - balanced review'
+          - 'low - critical issues only'
 
 jobs:
   review:
@@ -103,23 +103,22 @@ jobs:
           # Add review level instructions
           REVIEW_LEVEL="${{ inputs.review_level }}"
 
-          if [ "$REVIEW_LEVEL" = "critic" ]; then
+          if [[ "$REVIEW_LEVEL" == critic* ]]; then
             cat >> review_prompt.md << 'PROMPT_EOF'
 
-          ## Review Level: CRITIC (Strict)
-          Focus on ALL issues including breaking changes, security vulnerabilities, bugs, logic errors, edge cases, error handling gaps, and code quality problems. Be thorough and flag everything that could cause issues.
+          ## Review Level: CRITIC (Thorough)
+          Focus on ALL issues including breaking changes, security vulnerabilities, bugs, logic errors, edge cases, error handling gaps, and code quality problems. Be thorough and flag everything.
 
           PROMPT_EOF
-          elif [ "$REVIEW_LEVEL" = "low" ]; then
+          elif [[ "$REVIEW_LEVEL" == low* ]]; then
             cat >> review_prompt.md << 'PROMPT_EOF'
 
-          ## Review Level: LOW (Critical Only)
-          ONLY flag issues that are CRITICAL to the PR's objective. Ignore minor problems, style issues, and medium-severity bugs. Focus exclusively on:
-          - Security vulnerabilities that could be exploited
-          - Data loss or corruption risks
-          - Breaking changes that affect the PR's main goal
-          - Crashes or critical runtime errors
-          Skip everything else - no style suggestions, no minor improvements.
+          ## Review Level: LOW (Critical Only - FAST)
+          FAST review mode. ONLY flag CRITICAL issues:
+          - Security vulnerabilities
+          - Data loss or corruption
+          - Crashes or critical errors
+          Skip everything else. Do NOT explore files or use todo lists. Analyze the diff directly and output findings immediately.
 
           PROMPT_EOF
           else
@@ -134,12 +133,13 @@ jobs:
           cat >> review_prompt.md << 'PROMPT_EOF'
           ## Review Instructions
 
-          Output a GitHub markdown formatted review. Use this EXACT format for each issue:
+          Output GitHub markdown. Use this EXACT format for each issue:
 
           ---
 
           ### 🔴 CRITICAL `filename:line-range`
 
+          **Original Code:**
           ```javascript
           27 | const hash = hashPassword(password);
           28 | console.log('Hash:', hash);
@@ -147,29 +147,19 @@ jobs:
 
           **Problem:** Async function not awaited, returns Promise instead of value.
 
-          ```suggestion
+          **Suggested Fix:**
+          ```javascript
           27 | const hash = await hashPassword(password);
           28 | console.log('Hash:', hash);
           ```
 
           ---
 
-          Use these severity headers:
-          - `### 🔴 CRITICAL` - Security vulnerabilities, data loss, crashes
-          - `### ⚠️ WARNING` - Bugs, logic errors, missing error handling
-          - `### ℹ️ INFO` - Code style, naming, minor improvements
-          - `### 💡 SUGGESTION` - Optional enhancements
+          IMPORTANT: Always include "**Original Code:**" and "**Suggested Fix:**" labels before each code block.
 
-          Rules:
-          1. ALWAYS include line numbers in code snippets using format: `N | code`
-          2. First code block shows the PROBLEMATIC code from the diff
-          3. Second code block uses ```suggestion and shows the FIXED code
-          4. Line numbers must match between problematic and suggestion blocks
-          5. Use appropriate language hint (```javascript, ```typescript, ```python, etc.)
-          6. Use `---` horizontal rules between issues
-          7. For line ranges use `filename:start-end` format (e.g. `file.js:27-30`)
-          8. End with: **Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
-          9. If no issues: "✅ No issues found" and APPROVE
+          Severities: 🔴 CRITICAL, ⚠️ WARNING, ℹ️ INFO, 💡 SUGGESTION
+          End with: **Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
+          If no issues: "✅ No issues found" and APPROVE
           PROMPT_EOF
 
           echo "Review prompt created:"
