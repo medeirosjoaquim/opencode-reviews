@@ -7,6 +7,9 @@ Automated AI code reviews for any GitHub PR using [OpenCode](https://opencode.ai
 - Review any GitHub PR by URL
 - Configurable review focus (general, security, performance, code-quality, tests)
 - Adjustable review levels (critic, medium, low)
+- **Cross-functional review** - analyzes imported files to verify correct usage
+- **Full file context** - sends complete files, not just diffs
+- **Complementary branch** - compare against another branch/repo
 - Structured output with severity levels and code snippets
 - Posts review directly as a PR comment
 
@@ -46,6 +49,11 @@ on:
           - 'performance - efficiency, memory, speed'
           - 'code-quality - patterns, maintainability'
           - 'tests - coverage, assertions, edge cases'
+      complementary_branch:
+        description: 'Optional: branch URL for cross-repo comparison'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   review:
@@ -298,6 +306,36 @@ Specialize what the review looks for:
 | **performance** | N+1 queries, memory, blocking ops, caching |
 | **code-quality** | SOLID, DRY, naming, coupling |
 | **tests** | Coverage, assertions, edge cases, isolation |
+
+### Cross-Functional Review
+
+The AI receives enhanced context for better reviews:
+
+| Context | Description |
+|---------|-------------|
+| **Project Structure** | List of all source files for architecture awareness |
+| **Full File Content** | Complete changed files with line numbers (not just diff) |
+| **Imported Files** | Files referenced by changed code via `import`/`require` |
+| **Complementary Branch** | Compare against another branch (optional) |
+
+**Cross-functional checks performed:**
+- Function signatures match between caller and callee
+- Types are compatible across file boundaries
+- Required parameters are provided
+- Return values are handled correctly
+
+### Complementary Branch
+
+Use this to compare implementations across branches or repositories:
+
+```
+https://github.com/owner/repo/tree/branch-name
+```
+
+Example use cases:
+- Compare feature branch against a reference implementation
+- Review changes against a stable release branch
+- Cross-repo comparison for forked projects
 
 ---
 
