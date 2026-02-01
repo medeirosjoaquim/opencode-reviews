@@ -45,6 +45,9 @@ on:
 jobs:
   review:
     uses: medeirosjoaquim/opencode-reviews/.github/workflows/opencode-manual-review.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
     with:
       pr_url: ${{ inputs.pr_url }}
       review_level: ${{ inputs.review_level }}
@@ -53,6 +56,8 @@ jobs:
       GH_PAT: ${{ secrets.GH_PAT }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 ```
+
+> **Important:** The `permissions` block is required. Reusable workflows inherit permissions from the caller, not from their own definition.
 
 Then add the required secrets (see [step 2](#2-add-repository-secrets)) and run from the Actions tab.
 
@@ -436,6 +441,21 @@ Then modify the workflow to use `${{ github.event.pull_request.number }}` instea
 ---
 
 ## Troubleshooting
+
+### Workflow fails with "startup_failure" (Option A)
+
+When using the reusable workflow (Option A), ensure your calling workflow includes the `permissions` block:
+
+```yaml
+jobs:
+  review:
+    uses: medeirosjoaquim/opencode-reviews/.github/workflows/opencode-manual-review.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
+```
+
+Reusable workflows inherit permissions from the caller. Without these permissions, the workflow cannot checkout code or post PR comments.
 
 ### "Resource not accessible by integration"
 
