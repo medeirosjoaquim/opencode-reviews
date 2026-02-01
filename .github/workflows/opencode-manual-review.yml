@@ -1,6 +1,10 @@
-name: Manual PR Review
+name: AI PR Review
 
 on:
+  # Auto-trigger on PR events
+  pull_request:
+    types: [opened, synchronize]
+
   # Manual trigger from Actions tab
   workflow_dispatch:
     inputs:
@@ -38,9 +42,10 @@ on:
   workflow_call:
     inputs:
       pr_url:
-        description: 'Full PR URL'
-        required: true
+        description: 'Full PR URL (leave empty for auto-detect from PR event)'
+        required: false
         type: string
+        default: ''
       review_level:
         description: 'Review level: critic, medium, or low'
         required: false
@@ -74,23 +79,35 @@ jobs:
       - name: Parse PR URL
         id: parse
         run: |
-          PR_URL="${{ inputs.pr_url }}"
-
-          if [[ $PR_URL =~ github\.com/([^/]+)/([^/]+)/pull/([0-9]+) ]]; then
-            OWNER="${BASH_REMATCH[1]}"
-            REPO="${BASH_REMATCH[2]}"
-            PR_NUMBER="${BASH_REMATCH[3]}"
-
-            echo "owner=$OWNER" >> $GITHUB_OUTPUT
-            echo "repo=$REPO" >> $GITHUB_OUTPUT
-            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-            echo "repo_full=$OWNER/$REPO" >> $GITHUB_OUTPUT
-
-            echo "✅ Parsed: $OWNER/$REPO PR #$PR_NUMBER"
+          # Auto-detect from PR event or use input
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            OWNER="${{ github.repository_owner }}"
+            REPO="${{ github.event.repository.name }}"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            echo "🔄 Auto-detected from PR event"
+          elif [ -n "${{ inputs.pr_url }}" ]; then
+            PR_URL="${{ inputs.pr_url }}"
+            if [[ $PR_URL =~ github\.com/([^/]+)/([^/]+)/pull/([0-9]+) ]]; then
+              OWNER="${BASH_REMATCH[1]}"
+              REPO="${BASH_REMATCH[2]}"
+              PR_NUMBER="${BASH_REMATCH[3]}"
+            else
+              echo "❌ Invalid PR URL format"
+              exit 1
+            fi
           else
-            echo "❌ Invalid PR URL format"
+            echo "❌ No PR URL provided and not triggered by PR event"
             exit 1
           fi
+
+          echo "owner=$OWNER" >> $GITHUB_OUTPUT
+          echo "repo=$REPO" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "repo_full=$OWNER/$REPO" >> $GITHUB_OUTPUT
+
+          echo "✅ Parsed: $OWNER/$REPO PR #$PR_NUMBER"
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Checkout target repository
         uses: actions/checkout@v4
@@ -395,9 +412,25 @@ jobs:
           REPO_FULL="${{ steps.parse.outputs.repo_full }}"
           PR_NUMBER="${{ steps.parse.outputs.pr_number }}"
 
-          # Read review output and post as PR comment
-          gh pr comment $PR_NUMBER -R $REPO_FULL --body-file review_output.md
+          # Count existing AI reviews to generate review number
+          REVIEW_COUNT=$(gh pr view $PR_NUMBER -R $REPO_FULL --json comments --jq '[.comments[] | select(.body | contains("# 🤖 Code Review #"))] | length')
+          REVIEW_NUM=$((REVIEW_COUNT + 1))
 
-          echo "✅ Review posted to ${{ inputs.pr_url }}"
+          # Add header with review number
+          HEADER="# 🤖 Code Review #${REVIEW_NUM}
+
+> **Level:** ${{ inputs.review_level || 'medium' }} | **Focus:** ${{ inputs.review_focus || 'general' }}
+
+---
+
+"
+          # Combine header with review output
+          echo "$HEADER" > final_review.md
+          cat review_output.md >> final_review.md
+
+          # Post as PR comment
+          gh pr comment $PR_NUMBER -R $REPO_FULL --body-file final_review.md
+
+          echo "✅ Code Review #$REVIEW_NUM posted to PR #$PR_NUMBER"
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
