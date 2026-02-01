@@ -16,6 +16,17 @@ on:
           - 'critic - thorough, flags everything'
           - 'medium - balanced review'
           - 'low - critical issues only'
+      review_focus:
+        description: 'Review focus area'
+        required: false
+        type: choice
+        default: 'general'
+        options:
+          - 'general - all aspects'
+          - 'security - vulnerabilities, auth, injection'
+          - 'performance - efficiency, memory, speed'
+          - 'code-quality - patterns, maintainability'
+          - 'tests - coverage, assertions, edge cases'
 
 jobs:
   review:
@@ -86,6 +97,7 @@ jobs:
           - Base Branch: $BASE_REF
           - Head Branch: $HEAD_REF
           - Review Level: ${{ inputs.review_level }}
+          - Review Focus: ${{ inputs.review_focus }}
 
           ## Changed Files
           PROMPT_EOF
@@ -126,6 +138,39 @@ jobs:
 
           ## Review Level: MEDIUM (Balanced)
           Focus on bugs, security issues, and significant code quality problems. Skip minor style issues unless they affect readability or maintainability.
+
+          PROMPT_EOF
+          fi
+
+          # Add focus-specific instructions
+          REVIEW_FOCUS="${{ inputs.review_focus }}"
+
+          if [[ "$REVIEW_FOCUS" == security* ]]; then
+            cat >> review_prompt.md << 'PROMPT_EOF'
+
+          ## Focus: SECURITY
+          Prioritize: SQL injection, XSS, CSRF, auth bypass, secrets exposure, insecure dependencies, input validation, privilege escalation.
+
+          PROMPT_EOF
+          elif [[ "$REVIEW_FOCUS" == performance* ]]; then
+            cat >> review_prompt.md << 'PROMPT_EOF'
+
+          ## Focus: PERFORMANCE
+          Prioritize: N+1 queries, memory leaks, inefficient loops, blocking operations, missing caching, large payloads, unnecessary re-renders.
+
+          PROMPT_EOF
+          elif [[ "$REVIEW_FOCUS" == code-quality* ]]; then
+            cat >> review_prompt.md << 'PROMPT_EOF'
+
+          ## Focus: CODE QUALITY
+          Prioritize: SOLID principles, DRY violations, complex conditionals, poor naming, missing abstractions, tight coupling, dead code.
+
+          PROMPT_EOF
+          elif [[ "$REVIEW_FOCUS" == tests* ]]; then
+            cat >> review_prompt.md << 'PROMPT_EOF'
+
+          ## Focus: TESTS
+          Prioritize: Missing test coverage, weak assertions, missing edge cases, flaky tests, test isolation, mocking issues.
 
           PROMPT_EOF
           fi
