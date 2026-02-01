@@ -105,11 +105,18 @@ jobs:
 
           ---
           ### ⚠️ WARNING `filename:line`
+
+          **Original Code:**
           ```typescript
-          code snippet
+          code snippet with line numbers
           ```
+
           **Problem:** Brief explanation.
-          **Fix:** Suggested solution.
+
+          **Suggested Change:**
+          ```typescript
+          fixed code snippet with line numbers
+          ```
           ---
 
           Severities: 🔴 CRITICAL, ⚠️ WARNING, ℹ️ INFO, 💡 SUGGESTION
@@ -193,27 +200,47 @@ Brief description of what the PR does.
 
 ---
 
-### 🔴 CRITICAL `src/auth.ts:45`
+### 🔴 CRITICAL `src/auth.ts:45-47`
 
+**Original Code:**
 ```typescript
-const password = req.body.password; // stored in plain text
+45 |   const password = req.body.password;
+46 |   await db.users.insert({ email, password });
+47 |   return res.json({ success: true });
 ```
 
-**Problem:** Password is stored without hashing.
+**Problem:** Password is stored without hashing, exposing user credentials if database is compromised.
 
-**Fix:** Use bcrypt to hash passwords before storage.
+**Suggested Change:**
+```typescript
+45 |   const password = req.body.password;
+46 |   const hashedPassword = await bcrypt.hash(password, 10);
+47 |   await db.users.insert({ email, password: hashedPassword });
+48 |   return res.json({ success: true });
+```
 
 ---
 
-### ⚠️ WARNING `src/api.ts:120`
+### ⚠️ WARNING `src/api.ts:120-121`
 
+**Original Code:**
 ```typescript
-const data = await fetch(url); // no error handling
+120 |   const data = await fetch(url);
+121 |   return data.json();
 ```
 
-**Problem:** Missing error handling for network request.
+**Problem:** Missing error handling for network request could cause unhandled exceptions.
 
-**Fix:** Wrap in try-catch and handle failures gracefully.
+**Suggested Change:**
+```typescript
+120 |   try {
+121 |     const data = await fetch(url);
+122 |     return data.json();
+123 |   } catch (error) {
+124 |     console.error('Fetch failed:', error);
+125 |     throw new ApiError('Network request failed');
+126 |   }
+```
 
 ---
 
