@@ -38,14 +38,14 @@ on:
           - code-quality
           - tests
       strictness:
-        description: 'critical=fast/security only, medium=standard, low=thorough/nitpicks'
+        description: 'Review thoroughness'
         required: false
         type: choice
         default: 'medium'
         options:
-          - critical
-          - medium
-          - low
+          - 'critical - fast, security/bugs only'
+          - 'medium - standard review'
+          - 'low - thorough, includes nitpicks'
 
 jobs:
   review:
