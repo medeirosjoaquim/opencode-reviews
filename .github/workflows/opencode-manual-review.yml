@@ -138,16 +138,18 @@ jobs:
 
           ---
 
-          ### ⚠️ WARNING `filename:line`
-
-          **Problem:** Brief explanation of the issue.
+          ### 🔴 CRITICAL `filename:line-range`
 
           ```javascript
-          const hash = hashPassword(password); // ❌ Missing await - returns Promise not value
+          27 | const hash = hashPassword(password);
+          28 | console.log('Hash:', hash);
           ```
 
+          **Problem:** Async function not awaited, returns Promise instead of value.
+
           ```suggestion
-          const hash = await hashPassword(password);
+          27 | const hash = await hashPassword(password);
+          28 | console.log('Hash:', hash);
           ```
 
           ---
@@ -159,14 +161,15 @@ jobs:
           - `### 💡 SUGGESTION` - Optional enhancements
 
           Rules:
-          1. First show the PROBLEMATIC code with inline // comment explaining what's wrong
-          2. Then show a ```suggestion block with the FIXED code (clean, no comments)
-          3. Use appropriate language hint (```javascript, ```typescript, ```python, etc.)
-          4. Use `---` horizontal rules between issues
-          5. Use inline code for `file:line` references
-          6. End with: **Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
-          7. If no issues: "✅ No issues found" and APPROVE
-          8. Keep Problem explanation to 1 sentence
+          1. ALWAYS include line numbers in code snippets using format: `N | code`
+          2. First code block shows the PROBLEMATIC code from the diff
+          3. Second code block uses ```suggestion and shows the FIXED code
+          4. Line numbers must match between problematic and suggestion blocks
+          5. Use appropriate language hint (```javascript, ```typescript, ```python, etc.)
+          6. Use `---` horizontal rules between issues
+          7. For line ranges use `filename:start-end` format (e.g. `file.js:27-30`)
+          8. End with: **Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
+          9. If no issues: "✅ No issues found" and APPROVE
           PROMPT_EOF
 
           echo "Review prompt created:"
