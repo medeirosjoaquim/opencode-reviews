@@ -1,6 +1,7 @@
 name: Manual PR Review
 
 on:
+  # Manual trigger from Actions tab
   workflow_dispatch:
     inputs:
       pr_url:
@@ -32,6 +33,36 @@ on:
         required: false
         type: string
         default: ''
+
+  # Reusable workflow - can be called from other repos
+  workflow_call:
+    inputs:
+      pr_url:
+        description: 'Full PR URL'
+        required: true
+        type: string
+      review_level:
+        description: 'Review level: critic, medium, or low'
+        required: false
+        type: string
+        default: 'medium'
+      review_focus:
+        description: 'Review focus: general, security, performance, code-quality, or tests'
+        required: false
+        type: string
+        default: 'general'
+      complementary_branch:
+        description: 'Optional branch URL for comparison'
+        required: false
+        type: string
+        default: ''
+    secrets:
+      GH_PAT:
+        description: 'GitHub PAT with repo access'
+        required: true
+      DEEPSEEK_API_KEY:
+        description: 'DeepSeek API key'
+        required: true
 
 jobs:
   review:

@@ -15,7 +15,48 @@ Automated AI code reviews for any GitHub PR using [OpenCode](https://opencode.ai
 
 ## Quick Start
 
-### 1. Create the workflow file
+### Option A: Reference this repository (Recommended)
+
+Create `.github/workflows/pr-review.yml` in your repository:
+
+```yaml
+name: AI PR Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_url:
+        description: 'PR URL to review'
+        required: true
+        type: string
+      review_level:
+        description: 'Review level'
+        type: choice
+        default: 'medium'
+        options: ['critic', 'medium', 'low']
+      review_focus:
+        description: 'Review focus'
+        type: choice
+        default: 'general'
+        options: ['general', 'security', 'performance', 'code-quality', 'tests']
+
+jobs:
+  review:
+    uses: medeirosjoaquim/opencode-reviews/.github/workflows/opencode-manual-review.yml@main
+    with:
+      pr_url: ${{ inputs.pr_url }}
+      review_level: ${{ inputs.review_level }}
+      review_focus: ${{ inputs.review_focus }}
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+```
+
+Then add the required secrets (see [step 2](#2-add-repository-secrets)) and run from the Actions tab.
+
+---
+
+### Option B: Copy the full workflow
 
 Create `.github/workflows/opencode-review.yml` in your repository:
 
