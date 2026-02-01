@@ -1,10 +1,6 @@
 name: AI PR Review
 
 on:
-  # Auto-trigger on PR events
-  pull_request:
-    types: [opened, synchronize]
-
   # Manual trigger from Actions tab
   workflow_dispatch:
     inputs:
@@ -37,6 +33,14 @@ on:
         required: false
         type: string
         default: ''
+      search_documentation:
+        description: 'Search external library documentation during review'
+        required: false
+        type: choice
+        default: 'no'
+        options:
+          - 'no - skip documentation search'
+          - 'yes - search docs for external libraries'
 
   # Reusable workflow - can be called from other repos
   workflow_call:
@@ -61,6 +65,11 @@ on:
         required: false
         type: string
         default: ''
+      search_documentation:
+        description: 'Search external library documentation (yes/no)'
+        required: false
+        type: string
+        default: 'no'
     secrets:
       GH_PAT:
         description: 'GitHub PAT with repo access'
@@ -258,6 +267,93 @@ jobs:
             fi
           fi
 
+          # === EXTERNAL LIBRARY DOCUMENTATION SEARCH ===
+          SEARCH_DOCS="${{ inputs.search_documentation }}"
+          if [[ "$SEARCH_DOCS" == yes* ]]; then
+            echo "📚 Searching for external library documentation..."
+
+            # Extract external package imports (not relative paths)
+            EXTERNAL_PACKAGES=""
+            for file in $CHANGED_FILES; do
+              if [ -f "$file" ]; then
+                ext="${file##*.}"
+
+                # JavaScript/TypeScript imports
+                if [[ "$ext" =~ ^(js|jsx|ts|tsx)$ ]]; then
+                  # ES6 imports: import x from 'package' (not starting with . or /)
+                  js_imports=$(grep -E "^import .* from ['\"][^./]" "$file" 2>/dev/null | sed -E "s/.*from ['\"]([^'\"/@]+).*/\1/" | sort -u)
+                  # Require: require('package') (not starting with . or /)
+                  js_requires=$(grep -E "require\(['\"][^./]" "$file" 2>/dev/null | sed -E "s/.*require\(['\"]([^'\"/@]+).*/\1/" | sort -u)
+                  EXTERNAL_PACKAGES="$EXTERNAL_PACKAGES $js_imports $js_requires"
+                fi
+
+                # Python imports
+                if [[ "$ext" == "py" ]]; then
+                  py_imports=$(grep -E "^(import|from) [a-zA-Z]" "$file" 2>/dev/null | sed -E "s/^import ([a-zA-Z_][a-zA-Z0-9_]*).*/\1/" | sed -E "s/^from ([a-zA-Z_][a-zA-Z0-9_]*).*/\1/" | sort -u)
+                  EXTERNAL_PACKAGES="$EXTERNAL_PACKAGES $py_imports"
+                fi
+
+                # Go imports
+                if [[ "$ext" == "go" ]]; then
+                  go_imports=$(grep -E '^\s*"[a-zA-Z]' "$file" 2>/dev/null | grep -v "^//" | sed -E 's/.*"([^"]+)".*/\1/' | grep -v "^\./" | sort -u)
+                  EXTERNAL_PACKAGES="$EXTERNAL_PACKAGES $go_imports"
+                fi
+              fi
+            done
+
+            # Deduplicate and filter common stdlib packages
+            UNIQUE_PACKAGES=$(echo "$EXTERNAL_PACKAGES" | tr ' ' '\n' | sort -u | grep -v "^$" | \
+              grep -vE "^(os|sys|re|json|path|fs|http|net|fmt|time|math|util|crypto|stream|buffer|events|url|querystring|child_process|cluster|dgram|dns|domain|readline|repl|string_decoder|tls|tty|v8|vm|zlib|assert|async_hooks|inspector|perf_hooks|process|punycode|timers|trace_events|worker_threads|console)$")
+
+            if [ -n "$UNIQUE_PACKAGES" ]; then
+              echo "" >> review_prompt.md
+              echo "## External Library Documentation" >> review_prompt.md
+              echo "Documentation fetched for libraries used in changed files:" >> review_prompt.md
+
+              # Limit to first 5 packages to avoid overwhelming the context
+              PACKAGES_TO_SEARCH=$(echo "$UNIQUE_PACKAGES" | head -5)
+
+              for pkg in $PACKAGES_TO_SEARCH; do
+                echo "" >> review_prompt.md
+                echo "### 📦 \`$pkg\`" >> review_prompt.md
+
+                # Try to fetch package info from npm registry (for JS packages)
+                npm_info=$(curl -s "https://registry.npmjs.org/$pkg" 2>/dev/null | jq -r 'select(.name) | "**Description:** \(.description // "N/A")\n**Homepage:** \(.homepage // .repository.url // "N/A")\n**Latest Version:** \(.["dist-tags"].latest // "N/A")"' 2>/dev/null)
+
+                if [ -n "$npm_info" ] && [ "$npm_info" != "null" ]; then
+                  echo "$npm_info" >> review_prompt.md
+
+                  # Fetch README snippet if available
+                  readme=$(curl -s "https://registry.npmjs.org/$pkg" 2>/dev/null | jq -r '.readme // empty' 2>/dev/null | head -100)
+                  if [ -n "$readme" ]; then
+                    echo "" >> review_prompt.md
+                    echo "<details><summary>📖 README excerpt</summary>" >> review_prompt.md
+                    echo "" >> review_prompt.md
+                    echo "$readme" | head -100 >> review_prompt.md
+                    echo "" >> review_prompt.md
+                    echo "</details>" >> review_prompt.md
+                  fi
+                else
+                  # Try PyPI for Python packages
+                  pypi_info=$(curl -s "https://pypi.org/pypi/$pkg/json" 2>/dev/null | jq -r 'select(.info) | "**Description:** \(.info.summary // "N/A")\n**Homepage:** \(.info.home_page // .info.project_url // "N/A")\n**Latest Version:** \(.info.version // "N/A")"' 2>/dev/null)
+
+                  if [ -n "$pypi_info" ] && [ "$pypi_info" != "null" ]; then
+                    echo "$pypi_info" >> review_prompt.md
+                  else
+                    echo "Documentation not found in npm or PyPI registries." >> review_prompt.md
+                  fi
+                fi
+              done
+
+              SKIPPED_COUNT=$(echo "$UNIQUE_PACKAGES" | wc -l)
+              SEARCHED_COUNT=$(echo "$PACKAGES_TO_SEARCH" | wc -l)
+              if [ "$SKIPPED_COUNT" -gt "$SEARCHED_COUNT" ]; then
+                echo "" >> review_prompt.md
+                echo "_Note: $(($SKIPPED_COUNT - $SEARCHED_COUNT)) additional packages were detected but not searched to limit context size._" >> review_prompt.md
+              fi
+            fi
+          fi
+
           # Add review level instructions
           REVIEW_LEVEL="${{ inputs.review_level }}"
 
@@ -321,6 +417,21 @@ jobs:
           PROMPT_EOF
           fi
 
+          # Add documentation-specific instructions if enabled
+          if [[ "${{ inputs.search_documentation }}" == yes* ]]; then
+            cat >> review_prompt.md << 'PROMPT_EOF'
+
+          ## Documentation Reference
+          External library documentation has been fetched. When reviewing code that uses these libraries:
+          - Verify API usage matches documented signatures
+          - Check for deprecated function usage
+          - Validate correct parameter types and order
+          - Confirm proper error handling patterns as documented
+          - Flag any usage that contradicts official documentation
+
+          PROMPT_EOF
+          fi
+
           cat >> review_prompt.md << 'PROMPT_EOF'
           ## Review Instructions
 
@@ -329,6 +440,7 @@ jobs:
           2. Related/imported files - verify changed code correctly uses functions from dependencies
           3. Project structure - understand the codebase architecture
           4. Complementary branch (if provided) - compare implementations
+          5. External library documentation (if enabled) - verify correct API usage
 
           When reviewing imports/usage, CHECK that:
           - Function signatures match between caller and callee
@@ -416,10 +528,16 @@ jobs:
           REVIEW_COUNT=$(gh pr view $PR_NUMBER -R $REPO_FULL --json comments --jq '[.comments[] | select(.body | contains("# 🤖 Code Review #"))] | length')
           REVIEW_NUM=$((REVIEW_COUNT + 1))
 
+          # Build docs indicator
+          DOCS_INDICATOR=""
+          if [[ "${{ inputs.search_documentation }}" == yes* ]]; then
+            DOCS_INDICATOR=" | **Docs:** 📚 enabled"
+          fi
+
           # Add header with review number
           HEADER="# 🤖 Code Review #${REVIEW_NUM}
 
-> **Level:** ${{ inputs.review_level || 'medium' }} | **Focus:** ${{ inputs.review_focus || 'general' }}
+> **Level:** ${{ inputs.review_level || 'medium' }} | **Focus:** ${{ inputs.review_focus || 'general' }}${DOCS_INDICATOR}
 
 ---
 
