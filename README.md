@@ -6,6 +6,7 @@ Automated AI code reviews for any GitHub PR using [OpenCode](https://opencode.ai
 
 - Review any GitHub PR by URL
 - Configurable review focus (general, security, performance, code-quality, tests)
+- Adjustable strictness levels (critical, medium, low)
 - Structured output with severity levels and code snippets
 - Posts review directly as a PR comment
 
@@ -36,6 +37,15 @@ on:
           - performance
           - code-quality
           - tests
+      strictness:
+        description: 'critical=fast/security only, medium=standard, low=thorough/nitpicks'
+        required: false
+        type: choice
+        default: 'medium'
+        options:
+          - critical
+          - medium
+          - low
 
 jobs:
   review:
@@ -90,6 +100,7 @@ jobs:
           - PR: #$PR_NUMBER - $PR_TITLE
           - Author: @$PR_AUTHOR
           - Focus: ${{ inputs.review_focus }}
+          - Strictness: ${{ inputs.strictness }}
 
           ## Diff
           EOF
@@ -101,23 +112,33 @@ jobs:
           cat >> review_prompt.md << 'EOF'
 
           ## Instructions
-          Output GitHub markdown. For each issue use:
+
+          **Strictness levels (affects both speed and detail):**
+          - critical: FAST review - only scan the diff for security vulnerabilities and obvious bugs. Skip codebase exploration, skip style issues. Output only critical findings.
+          - medium: Standard review - check for bugs, missing error handling, and code quality issues
+          - low: Thorough review - include style nitpicks, naming suggestions, and minor improvements
+
+          IMPORTANT: Do NOT use todo lists or explore files outside the diff. Analyze the diff directly and output findings immediately.
+
+          Output GitHub markdown. For each issue use EXACTLY this format:
 
           ---
-          ### ⚠️ WARNING `filename:line`
+          ### 🔴 CRITICAL `filename:line-line`
 
           **Original Code:**
-          ```typescript
-          code snippet with line numbers
+          ```language
+          XX |   problematic code here
           ```
 
-          **Problem:** Brief explanation.
+          **Problem:** Explanation of the issue.
 
-          **Suggested Change:**
-          ```typescript
-          fixed code snippet with line numbers
+          **Suggested Fix:**
+          ```language
+          XX |   fixed code here
           ```
           ---
+
+          IMPORTANT: Always include "**Original Code:**" and "**Suggested Fix:**" labels before each code block.
 
           Severities: 🔴 CRITICAL, ⚠️ WARNING, ℹ️ INFO, 💡 SUGGESTION
           End with: **Verdict:** APPROVE | REQUEST_CHANGES | COMMENT
@@ -211,7 +232,7 @@ Brief description of what the PR does.
 
 **Problem:** Password is stored without hashing, exposing user credentials if database is compromised.
 
-**Suggested Change:**
+**Suggested Fix:**
 ```typescript
 45 |   const password = req.body.password;
 46 |   const hashedPassword = await bcrypt.hash(password, 10);
@@ -231,7 +252,7 @@ Brief description of what the PR does.
 
 **Problem:** Missing error handling for network request could cause unhandled exceptions.
 
-**Suggested Change:**
+**Suggested Fix:**
 ```typescript
 120 |   try {
 121 |     const data = await fetch(url);
@@ -255,6 +276,16 @@ Brief description of what the PR does.
 | ⚠️ | WARNING | Bugs, logic errors, missing error handling |
 | ℹ️ | INFO | Code style, naming, minor improvements |
 | 💡 | SUGGESTION | Optional enhancements |
+
+### Strictness Levels
+
+Control review speed and thoroughness:
+
+| Level | Speed | What gets reported |
+|-------|-------|-------------------|
+| **critical** | Fast | Security vulnerabilities, crashes, data loss - skips codebase exploration |
+| **medium** | Standard | Above + code quality, error handling, potential bugs |
+| **low** | Thorough | Above + style nitpicks, naming, minor improvements |
 
 ---
 
